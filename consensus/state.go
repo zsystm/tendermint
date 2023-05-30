@@ -447,7 +447,7 @@ func (cs *State) OpenWAL(walFile string) (WAL, error) {
 	return wal, nil
 }
 
-//------------------------------------------------------------
+// ------------------------------------------------------------
 // Public interface for passing messages into the consensus state, possibly causing a state transition.
 // If peerID == "", the msg is considered internal.
 // Messages are added to the appropriate queue (peer or internal).
@@ -457,8 +457,10 @@ func (cs *State) OpenWAL(walFile string) (WAL, error) {
 // AddVote inputs a vote.
 func (cs *State) AddVote(vote *types.Vote, peerID p2p.ID) (added bool, err error) {
 	if peerID == "" {
+		cs.Logger.Debug("AddVote: sending vote to internalMsgQueue", "vote", vote)
 		cs.internalMsgQueue <- msgInfo{&VoteMessage{vote}, ""}
 	} else {
+		cs.Logger.Debug("AddVote: sending vote to peerMsgQueue", "vote", vote, "peer", peerID)
 		cs.peerMsgQueue <- msgInfo{&VoteMessage{vote}, peerID}
 	}
 
@@ -469,8 +471,10 @@ func (cs *State) AddVote(vote *types.Vote, peerID p2p.ID) (added bool, err error
 // SetProposal inputs a proposal.
 func (cs *State) SetProposal(proposal *types.Proposal, peerID p2p.ID) error {
 	if peerID == "" {
+		cs.Logger.Debug("SetProposal: sending proposal to internalMsgQueue", "proposal", proposal)
 		cs.internalMsgQueue <- msgInfo{&ProposalMessage{proposal}, ""}
 	} else {
+		cs.Logger.Debug("SetProposal: sending proposal to peerMsgQueue", "proposal", proposal, "peer", peerID)
 		cs.peerMsgQueue <- msgInfo{&ProposalMessage{proposal}, peerID}
 	}
 
@@ -481,8 +485,10 @@ func (cs *State) SetProposal(proposal *types.Proposal, peerID p2p.ID) error {
 // AddProposalBlockPart inputs a part of the proposal block.
 func (cs *State) AddProposalBlockPart(height int64, round int32, part *types.Part, peerID p2p.ID) error {
 	if peerID == "" {
+		cs.Logger.Debug("AddProposalBlockPart: sending block part to internalMsgQueue", "part", part)
 		cs.internalMsgQueue <- msgInfo{&BlockPartMessage{height, round, part}, ""}
 	} else {
+		cs.Logger.Debug("AddProposalBlockPart: sending block part to peerMsgQueue", "part", part, "peer", peerID)
 		cs.peerMsgQueue <- msgInfo{&BlockPartMessage{height, round, part}, peerID}
 	}
 
@@ -511,7 +517,7 @@ func (cs *State) SetProposalAndBlock(
 	return nil
 }
 
-//------------------------------------------------------------
+// ------------------------------------------------------------
 // internal functions for managing the state
 
 func (cs *State) updateHeight(height int64) {
@@ -572,6 +578,9 @@ func (cs *State) reconstructLastCommit(state sm.State) {
 // Updates State and increments height to match that of state.
 // The round becomes 0 and cs.Step becomes cstypes.RoundStepNewHeight.
 func (cs *State) updateToState(state sm.State) {
+	if cs.Logger != nil {
+		cs.Logger.Debug("updateToState", "state.LastBlockHeight", state.LastBlockHeight, "state.LastBlockID", state.LastBlockID, "state.LastValidators", state.LastValidators.String())
+	}
 	if cs.CommitRound > -1 && 0 < cs.Height && cs.Height != state.LastBlockHeight {
 		panic(fmt.Sprintf(
 			"updateToState() expected state height of %v but found %v",
@@ -688,6 +697,7 @@ func (cs *State) newStep() {
 
 	// newStep is called by updateToState in NewState before the eventBus is set!
 	if cs.eventBus != nil {
+		cs.Logger.Debug("publishing new round step", "round_state", rs)
 		if err := cs.eventBus.PublishEventNewRoundStep(rs); err != nil {
 			cs.Logger.Error("failed publishing new round step", "err", err)
 		}
@@ -696,7 +706,7 @@ func (cs *State) newStep() {
 	}
 }
 
-//-----------------------------------------
+// -----------------------------------------
 // the main go routines
 
 // receiveRoutine handles messages which may cause state transitions.
@@ -751,6 +761,11 @@ func (cs *State) receiveRoutine(maxSteps int) {
 			cs.handleTxsAvailable()
 
 		case mi = <-cs.peerMsgQueue:
+			cs.Logger.Debug("receiveRoutine: got msg from peer", "msg", mi.Msg)
+			if vm, ok := mi.Msg.(*VoteMessage); ok {
+				// print vote
+				cs.Logger.Debug("got vote from peer", "vote.Height", vm.Vote.Height, "vote.Round", vm.Vote.Round, "vote.ValidatorIndex", vm.Vote.ValidatorIndex, "vote.BlockID", vm.Vote.BlockID, "vote.Signature", vm.Vote.Signature)
+			}
 			if err := cs.wal.Write(mi); err != nil {
 				cs.Logger.Error("failed writing to WAL", "err", err)
 			}
@@ -760,6 +775,7 @@ func (cs *State) receiveRoutine(maxSteps int) {
 			cs.handleMsg(mi)
 
 		case mi = <-cs.internalMsgQueue:
+			cs.Logger.Debug("receiveRoutine: got msg from internalMsgQueue", "msg", mi.Msg)
 			err := cs.wal.WriteSync(mi) // NOTE: fsync
 			if err != nil {
 				panic(fmt.Sprintf(
@@ -810,10 +826,12 @@ func (cs *State) handleMsg(mi msgInfo) {
 	case *ProposalMessage:
 		// will not cause transition.
 		// once proposal is set, we can receive block parts
+		cs.Logger.Debug("handleMsg: ProposalMessage", "msg", msg.String())
 		err = cs.setProposal(msg.Proposal)
 
 	case *BlockPartMessage:
 		// if the proposal is complete, we'll enterPrevote or tryFinalizeCommit
+		cs.Logger.Debug("handleMsg: BlockPartMessage", "msg", msg.String())
 		added, err = cs.addProposalBlockPart(msg, peerID)
 
 		// We unlock here to yield to any routines that need to read the the RoundState.
@@ -848,6 +866,7 @@ func (cs *State) handleMsg(mi msgInfo) {
 		}
 
 	case *VoteMessage:
+		cs.Logger.Debug("handleMsg: VoteMessage")
 		// attempt to add the vote and dupeout the validator if its a duplicate signature
 		// if the vote gives us a 2/3-any or 2/3-one, we transition
 		added, err = cs.tryAddVote(msg.Vote, peerID)
@@ -961,7 +980,7 @@ func (cs *State) handleTxsAvailable() {
 	}
 }
 
-//-----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // State functions
 // Used internally by handleTimeout and handleMsg to make state transitions
 
@@ -1150,9 +1169,11 @@ func (cs *State) defaultDecideProposal(height int64, round int32) {
 	if err := cs.privValidator.SignProposal(cs.state.ChainID, p); err == nil {
 		proposal.Signature = p.Signature
 
+		cs.Logger.Debug("sending proposal", "height", height, "round", round, "proposal", proposal, "node", cs.Validators.GetProposer().Address)
 		// send proposal and block parts on internal msg queue
 		cs.sendInternalMessage(msgInfo{&ProposalMessage{proposal}, ""})
 
+		cs.Logger.Debug("sending blockParts", "node", cs.Validators.GetProposer().Address)
 		for i := 0; i < int(blockParts.Total()); i++ {
 			part := blockParts.GetPart(i)
 			cs.sendInternalMessage(msgInfo{&BlockPartMessage{cs.Height, cs.Round, part}, ""})
@@ -1353,6 +1374,7 @@ func (cs *State) enterPrecommit(height int64, round int32) {
 		return
 	}
 
+	logger.Debug("publish polka", "blockID", blockID, "round", round, "height", height, "step", cs.Step.String())
 	// At this point +2/3 prevoted for a particular block or nil.
 	if err := cs.eventBus.PublishEventPolka(cs.RoundStateEvent()); err != nil {
 		logger.Error("failed publishing polka", "err", err)
@@ -1803,7 +1825,7 @@ func (cs *State) recordMetrics(height int64, block *types.Block) {
 	cs.metrics.CommittedHeight.Set(float64(block.Height))
 }
 
-//-----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 
 func (cs *State) defaultSetProposal(proposal *types.Proposal) error {
 	// Already have one
@@ -1950,7 +1972,7 @@ func (cs *State) tryAddVote(vote *types.Vote, peerID p2p.ID) (bool, error) {
 		// If the vote height is off, we'll just ignore it,
 		// But if it's a conflicting sig, add it to the cs.evpool.
 		// If it's otherwise invalid, punish peer.
-		//nolint: gocritic
+		// nolint: gocritic
 		if voteErr, ok := err.(*types.ErrVoteConflictingVotes); ok {
 			if cs.privValidatorPubKey == nil {
 				return false, errPubKeyIsNotSet
@@ -2016,6 +2038,7 @@ func (cs *State) addVote(vote *types.Vote, peerID p2p.ID) (added bool, err error
 		}
 
 		cs.Logger.Debug("added vote to last precommits", "last_commit", cs.LastCommit.StringShort())
+		cs.Logger.Debug("precommit for the previous height: publish event vote", "vote", vote.String())
 		if err := cs.eventBus.PublishEventVote(types.EventDataVote{Vote: vote}); err != nil {
 			return added, err
 		}
@@ -2046,6 +2069,7 @@ func (cs *State) addVote(vote *types.Vote, peerID p2p.ID) (added bool, err error
 		return
 	}
 
+	cs.Logger.Debug("publish event vote", "vote", vote.String())
 	if err := cs.eventBus.PublishEventVote(types.EventDataVote{Vote: vote}); err != nil {
 		return added, err
 	}
@@ -2075,6 +2099,7 @@ func (cs *State) addVote(vote *types.Vote, peerID p2p.ID) (added bool, err error
 				cs.LockedBlock = nil
 				cs.LockedBlockParts = nil
 
+				cs.Logger.Debug("publish event unlock", "cs.round", cs.Round, "cs.height", cs.Height, "cs.step", cs.Step)
 				if err := cs.eventBus.PublishEventUnlock(cs.RoundStateEvent()); err != nil {
 					return added, err
 				}
@@ -2103,6 +2128,7 @@ func (cs *State) addVote(vote *types.Vote, peerID p2p.ID) (added bool, err error
 					cs.ProposalBlockParts = types.NewPartSetFromHeader(blockID.PartSetHeader)
 				}
 
+				cs.Logger.Debug("publish event valid block", "cs.round", cs.Round, "cs.height", cs.Height, "cs.step", cs.Step)
 				cs.evsw.FireEvent(types.EventValidBlock, &cs.RoundState)
 				if err := cs.eventBus.PublishEventValidBlock(cs.RoundStateEvent()); err != nil {
 					return added, err
@@ -2172,6 +2198,7 @@ func (cs *State) signVote(
 	hash []byte,
 	header types.PartSetHeader,
 ) (*types.Vote, error) {
+	cs.Logger.Debug("signVote", "msgType", msgType, "hash", hash, "header", header)
 	// Flush the WAL. Otherwise, we may not recompute the same vote to sign,
 	// and the privValidator will refuse to sign anything.
 	if err := cs.wal.FlushAndSync(); err != nil {
@@ -2197,6 +2224,7 @@ func (cs *State) signVote(
 
 	v := vote.ToProto()
 	err := cs.privValidator.SignVote(cs.state.ChainID, v)
+	cs.Logger.Debug("signed vote", "vote", v, "err", err, "signer", cs.privValidatorPubKey.Address().String())
 	vote.Signature = v.Signature
 	vote.Timestamp = v.Timestamp
 
@@ -2243,6 +2271,7 @@ func (cs *State) signAddVote(msgType tmproto.SignedMsgType, hash []byte, header 
 	// TODO: pass pubKey to signVote
 	vote, err := cs.signVote(msgType, hash, header)
 	if err == nil {
+		cs.Logger.Debug("send signed vote to internalMsgQueue", "height", cs.Height, "round", cs.Round, "vote", vote)
 		cs.sendInternalMessage(msgInfo{&VoteMessage{vote}, ""})
 		cs.Logger.Debug("signed and pushed vote", "height", cs.Height, "round", cs.Round, "vote", vote)
 		return vote
@@ -2319,7 +2348,7 @@ func (cs *State) calculatePrevoteMessageDelayMetrics() {
 	}
 }
 
-//---------------------------------------------------------
+// ---------------------------------------------------------
 
 func CompareHRS(h1 int64, r1 int32, s1 cstypes.RoundStepType, h2 int64, r2 int32, s2 cstypes.RoundStepType) int {
 	if h1 < h2 {

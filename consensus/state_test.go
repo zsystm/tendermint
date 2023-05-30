@@ -52,7 +52,7 @@ x * TestHalt1 - if we see +2/3 precommits after timing out into new round, we sh
 
 */
 
-//----------------------------------------------------------------------------------------------------
+// ----------------------------------------------------------------------------------------------------
 // ProposeSuite
 
 func TestStateProposerSelection0(t *testing.T) {
@@ -78,8 +78,10 @@ func TestStateProposerSelection0(t *testing.T) {
 
 	// Wait for complete proposal.
 	ensureNewProposal(proposalCh, height, round)
+	t.Logf("ensured new proposal | height: %d, round: %d\n", height, round)
 
 	rs := cs1.GetRoundState()
+	t.Logf("start signAddVotes from validators\n")
 	signAddVotes(cs1, tmproto.PrecommitType, rs.ProposalBlock.Hash(), rs.ProposalBlockParts.Header(), vss[1:]...)
 
 	// Wait for new round so next validator is set.
@@ -124,8 +126,11 @@ func TestStateProposerSelection2(t *testing.T) {
 		}
 
 		rs := cs1.GetRoundState()
+		t.Logf("send +2/3precommits")
 		signAddVotes(cs1, tmproto.PrecommitType, nil, rs.ProposalBlockParts.Header(), vss[1:]...)
+		t.Logf("ensureNewRound: height: %d, round: %d\n", height, i+round+1)
 		ensureNewRound(newRoundCh, height, i+round+1) // wait for the new round event each round
+		t.Logf("incrementRound\n")
 		incrementRound(vss[1:]...)
 	}
 
@@ -297,7 +302,7 @@ func TestStateOversizedBlock(t *testing.T) {
 	signAddVotes(cs1, tmproto.PrecommitType, propBlock.Hash(), propBlock.MakePartSet(partSize).Header(), vs2)
 }
 
-//----------------------------------------------------------------------------------------------------
+// ----------------------------------------------------------------------------------------------------
 // FullRoundSuite
 
 // propose, prevote, and precommit a block
@@ -394,7 +399,7 @@ func TestStateFullRound2(t *testing.T) {
 	ensureNewBlock(newBlockCh, height)
 }
 
-//------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------
 // LockSuite
 
 // two validators, 4 rounds.
@@ -450,7 +455,7 @@ func TestStateLockNoPOL(t *testing.T) {
 	// but with invalid args. then we enterPrecommitWait, and the timeout to new round
 	ensureNewTimeout(timeoutWaitCh, height, round, cs1.config.Precommit(round).Nanoseconds())
 
-	///
+	// /
 
 	round++ // moving to the next round
 	ensureNewRound(newRoundCh, height, round)
@@ -645,7 +650,7 @@ func TestStateLockPOLRelock(t *testing.T) {
 	ensureNewTimeout(timeoutWaitCh, height, round, cs1.config.Precommit(round).Nanoseconds())
 
 	round++ // moving to the next round
-	//XXX: this isnt guaranteed to get there before the timeoutPropose ...
+	// XXX: this isnt guaranteed to get there before the timeoutPropose ...
 	if err := cs1.SetProposalAndBlock(prop, propBlock, propBlockParts, "some peer"); err != nil {
 		t.Fatal(err)
 	}
@@ -745,7 +750,7 @@ func TestStateLockPOLUnlock(t *testing.T) {
 		Round2 (vs2, C) // B nil nil nil // nil nil nil _
 		cs1 unlocks!
 	*/
-	//XXX: this isnt guaranteed to get there before the timeoutPropose ...
+	// XXX: this isnt guaranteed to get there before the timeoutPropose ...
 	if err := cs1.SetProposalAndBlock(prop, propBlock, propBlockParts, "some peer"); err != nil {
 		t.Fatal(err)
 	}
@@ -950,7 +955,7 @@ func TestStateLockPOLSafety1(t *testing.T) {
 	round++ // moving to the next round
 	ensureNewRound(newRoundCh, height, round)
 
-	//XXX: this isnt guaranteed to get there before the timeoutPropose ...
+	// XXX: this isnt guaranteed to get there before the timeoutPropose ...
 	if err := cs1.SetProposalAndBlock(prop, propBlock, propBlockParts, "some peer"); err != nil {
 		t.Fatal(err)
 	}
@@ -1649,7 +1654,7 @@ func TestResetTimeoutPrecommitUponNewHeight(t *testing.T) {
 		"triggeredTimeoutPrecommit should be false at the beginning of each height")
 }
 
-//------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------
 // SlashingSuite
 // TODO: Slashing
 
@@ -1726,10 +1731,10 @@ func TestStateSlashingPrecommits(t *testing.T) {
 }
 */
 
-//------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------
 // CatchupSuite
 
-//------------------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------------------
 // HaltSuite
 
 // 4 vals.

@@ -332,8 +332,10 @@ loop:
 			state.removeAll(nil)
 			break loop
 		case sub:
+			// s.Logger.Debug("Adding subscription", "clientID", cmd.clientID, "query", cmd.query, "subscription", cmd.subscription)
 			state.add(cmd.clientID, cmd.query, cmd.subscription)
 		case pub:
+			// s.Logger.Debug("Publishing message", "msg", cmd.msg, "events", cmd.events)
 			if err := state.send(cmd.msg, cmd.events); err != nil {
 				s.Logger.Error("Error querying for events", "err", err)
 			}

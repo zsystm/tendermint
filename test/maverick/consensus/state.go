@@ -434,7 +434,7 @@ func (cs *State) addVote(
 	return added, err
 }
 
-//-----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // Errors
 
 var (
@@ -446,7 +446,7 @@ var (
 	errPubKeyIsNotSet = errors.New("pubkey is not set. Look for \"Can't get private validator pubkey\" errors")
 )
 
-//-----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 
 var msgQueueSize = 1000
 
@@ -479,7 +479,7 @@ type evidencePool interface {
 	ReportConflictingVotes(voteA, voteB *types.Vote)
 }
 
-//----------------------------------------
+// ----------------------------------------
 // Public interface
 
 // SetLogger implements Service.
@@ -709,7 +709,7 @@ func (cs *State) OpenWAL(walFile string) (tmcon.WAL, error) {
 	return wal, nil
 }
 
-//------------------------------------------------------------
+// ------------------------------------------------------------
 // Public interface for passing messages into the consensus state, possibly causing a state transition.
 // If peerID == "", the msg is considered internal.
 // Messages are added to the appropriate queue (peer or internal).
@@ -721,6 +721,7 @@ func (cs *State) AddVote(vote *types.Vote, peerID p2p.ID) (added bool, err error
 	if peerID == "" {
 		cs.internalMsgQueue <- msgInfo{&tmcon.VoteMessage{Vote: vote}, ""}
 	} else {
+		cs.Logger.Debug("Adding vote to peerMsgQueue", "vote", vote, "peerID", peerID)
 		cs.peerMsgQueue <- msgInfo{&tmcon.VoteMessage{Vote: vote}, peerID}
 	}
 
@@ -771,7 +772,7 @@ func (cs *State) SetProposalAndBlock(
 	return nil
 }
 
-//------------------------------------------------------------
+// ------------------------------------------------------------
 // internal functions for managing the state
 
 func (cs *State) updateHeight(height int64) {
@@ -941,7 +942,7 @@ func (cs *State) newStep() {
 	}
 }
 
-//-----------------------------------------
+// -----------------------------------------
 // the main go routines
 
 // receiveRoutine handles messages which may cause state transitions.
@@ -1095,7 +1096,7 @@ func (cs *State) handleTxsAvailable() {
 	}
 }
 
-//-----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // State functions
 // Used internally by handleTimeout and handleMsg to make state transitions
 
@@ -1220,8 +1221,9 @@ func (cs *State) defaultDecideProposal(height int64, round int32) {
 	if err := cs.privValidator.SignProposal(cs.state.ChainID, p); err == nil {
 		proposal.Signature = p.Signature
 
+		cs.Logger.Debug("sending proposal", "node", cs.privValidatorPubKey.Address().String(), "proposal", proposal)
 		// send proposal and block parts on internal msg queue
-		cs.sendInternalMessage(msgInfo{&tmcon.ProposalMessage{Proposal: proposal}, ""})
+		cs.sendInternalMessage(msgInfo{&tmcon.ProposalMessage{Proposal: proposal}, p2p.ID(cs.privValidatorPubKey.Address().String())})
 		for i := 0; i < int(blockParts.Total()); i++ {
 			part := blockParts.GetPart(i)
 			cs.sendInternalMessage(msgInfo{&tmcon.BlockPartMessage{Height: cs.Height, Round: cs.Round, Part: part}, ""})
@@ -1677,7 +1679,7 @@ func (cs *State) recordMetrics(height int64, block *types.Block) {
 	cs.metrics.CommittedHeight.Set(float64(block.Height))
 }
 
-//-----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 
 // NOTE: block is not necessarily valid.
 // Asynchronously triggers either enterPrevote (before we timeout of propose) or tryFinalizeCommit,
@@ -1728,7 +1730,7 @@ func (cs *State) addProposalBlockPart(msg *tmcon.BlockPartMessage, peerID p2p.ID
 
 		cs.ProposalBlock = block
 		// NOTE: it's possible to receive complete proposal blocks for future rounds without having the proposal
-		cs.Logger.Info("Received complete proposal block", "height", cs.ProposalBlock.Height, "hash", cs.ProposalBlock.Hash())
+		cs.Logger.Info("Received complete proposal block", "height", cs.ProposalBlock.Height, "hash", cs.ProposalBlock.Hash(), "peer", peerID)
 		if err := cs.eventBus.PublishEventCompleteProposal(cs.CompleteProposalEvent()); err != nil {
 			cs.Logger.Error("Error publishing event complete proposal", "err", err)
 		}
@@ -1773,7 +1775,7 @@ func (cs *State) tryAddVote(vote *types.Vote, peerID p2p.ID) (bool, error) {
 		// If the vote height is off, we'll just ignore it,
 		// But if it's a conflicting sig, add it to the cs.evpool.
 		// If it's otherwise invalid, punish peer.
-		//nolint: gocritic
+		// nolint: gocritic
 		if voteErr, ok := err.(*types.ErrVoteConflictingVotes); ok {
 			if cs.privValidatorPubKey == nil {
 				return false, errPubKeyIsNotSet
@@ -1807,7 +1809,7 @@ func (cs *State) tryAddVote(vote *types.Vote, peerID p2p.ID) (bool, error) {
 	return added, nil
 }
 
-//-----------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 
 // CONTRACT: cs.privValidator is not nil.
 func (cs *State) signVote(
@@ -1889,7 +1891,7 @@ func (cs *State) signAddVote(msgType tmproto.SignedMsgType, hash []byte, header 
 	}
 	// if !cs.replayMode {
 	cs.Logger.Error("Error signing vote", "height", cs.Height, "round", cs.Round, "vote", vote, "err", err)
-	//}
+	// }
 	return nil
 }
 
@@ -1932,7 +1934,7 @@ func (cs *State) checkDoubleSigningRisk(height int64) error {
 	return nil
 }
 
-//---------------------------------------------------------
+// ---------------------------------------------------------
 
 func CompareHRS(h1 int64, r1 int32, s1 cstypes.RoundStepType, h2 int64, r2 int32, s2 cstypes.RoundStepType) int {
 	if h1 < h2 {
